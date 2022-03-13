@@ -1,0 +1,65 @@
+import pymysql
+import string
+import random
+import argparse
+import boto3
+import json
+
+client = boto3.client('secretsmanager')
+
+parser = argparse.ArgumentParser(description='arguments')
+
+parser.add_argument('--dest_user_name', type=str ,default='')
+parser.add_argument('--dest_ip_address', type=str ,default='')
+parser.add_argument('--whitelisted_ip_address', type=str ,default='')
+parser.add_argument('--password_length', type=int ,default=12)
+
+argv = vars(parser.parse_args())
+dest_user_name = argv['dest_user_name']
+dest_ip_address = argv['dest_ip_address']
+whitelisted_ip_address = argv['whitelisted_ip_address']
+password_length = argv['password_length']
+
+res = ''.join(random.choices(string.ascii_uppercase +
+                             string.digits , k = password_length))
+new_user_password = str(res)
+
+print (new_user_password, "password new")
+
+def getDatabaseConnection(ipaddress, usr, passwd, curtype):
+    sqlCon  = pymysql.connect(host=ipaddress, user=usr, password=passwd, cursorclass=curtype);
+    return sqlCon
+
+
+def createUser(cursor,dest_user_name,whitelisted_ip_address,new_user_password):
+    try:
+        sqlCreateUser = "CREATE USER '%s'@'%s' IDENTIFIED BY '%s';"%(dest_user_name,whitelisted_ip_address,new_user_password)
+        cursor.execute(sqlCreateUser)
+    except Exception as Ex:
+        print("error creating mysql user: %s"%(Ex))
+
+
+response = client.get_secret_value(
+    SecretId='Secret_Name'
+)
+
+database_secrets = json.loads(response['SecretString'])
+
+passwd = database_secrets[dest_ip_address]
+
+
+usr = "root"
+curtype = pymysql.cursors.DictCursor
+
+mySQLConnection = getDatabaseConnection(dest_ip_address,usr,passwd,curtype)
+mySQLCursor = mySQLConnection.cursor()
+
+mySqlListUsers = "select user,host from mysql.user;"
+mySQLCursor.execute(mySqlListUsers)
+
+userList = mySQLCursor.fetchall()
+
+print("list of users")
+for user in userList:
+    print(user)
+createUser(mySQLCursor,dest_user_name,whitelisted_ip_address,new_user_password)
